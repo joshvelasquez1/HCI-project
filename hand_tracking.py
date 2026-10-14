@@ -122,7 +122,7 @@ try:
                 )
                 thumb_open = thumb_ratio > 0.65
 
-                if all(fingers) and not thumb_open:
+                if fingers == [False, True, True, True]:
                     status = "Toggle controls"
                 elif all(fingers):
                     status = "Open hand"
@@ -230,7 +230,7 @@ try:
                 else:
                     instruction = f"Hold: {held_seconds:.1f}/2.0 seconds"
             elif not controls_enabled:
-                instruction = "4 fingers, thumb folded to resume"
+                instruction = "Open your middle, ring, and pinky finger to continue"
             elif status in volume_commands and ready:
                 instruction = "Adjusting volume"
             elif now < feedback_until:
@@ -282,7 +282,7 @@ try:
             panel_text(panel, "Index & middle: Volume down", 250)
             panel_text(panel, "Index & middle & ring: Next track", 285)
             panel_text(panel, "Index & pinky: Previous track", 320)
-            panel_text(panel, "4 fingers, thumb folded:", 355)
+            panel_text(panel, "Middle & ring & and pinky:", 355)
             panel_text(panel, "Hold 2s to pause/resume controls", 380)
 
             panel_text(panel, "Keep holding to adjust volume.", 415)
