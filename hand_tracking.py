@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import mediapipe as mp
 import pyautogui
+from PIL import Image, ImageDraw, ImageFont
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
@@ -45,13 +46,31 @@ HOLD_SECONDS = 1.0
 TOGGLE_SECONDS = 2.0
 VOLUME_INTERVAL = 0.3
 
-# information panel
-def panel_text(panel, text, y, color=(230, 230, 230), scale=0.55):
-    cv2.putText(
-        panel, text, (20, y),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        scale, color, 1, cv2.LINE_AA,
-    )
+#colors
+BG_PANEL = (44, 28, 26)       # #1A1C2C 
+BG_CAM = (111, 54, 41)        # #29366F 
+ACCENT_CYAN = (255, 210, 0)   # #00D2FF 
+ACCENT_PINK = (108, 37, 244)  # #F4256C 
+TEXT_WHITE = (244, 244, 244)  # #F4F4F4 
+
+# information panel this is where we change the font
+def panel_text(panel, text, y, color=(244, 244, 244), scale=0.5, thickness=1, x=20):
+    pil_img = Image.fromarray(cv2.cvtColor(panel, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(pil_img)
+    
+    try:
+        font_size = int(scale * 40)
+        font = ImageFont.truetype("VT323-Regular.ttf", font_size)
+    except IOError:
+        font = ImageFont.load_default()
+        
+    color_rgb = (color[2], color[1], color[0])
+    
+    draw.text((x, y - 6), text, font=font, fill=color_rgb)
+    
+    converted_back = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+    np.copyto(panel, converted_back)
+
 def landmark_distance(hand, a, b, width, height):
     return np.hypot(
         (hand[a].x - hand[b].x) * width,
@@ -122,7 +141,7 @@ try:
                 )
                 thumb_open = thumb_ratio > 0.65
 
-                if fingers == [False, True, True, True]:
+                if all(fingers) and not thumb_open:
                     status = "Toggle controls"
                 elif all(fingers):
                     status = "Open hand"
@@ -230,7 +249,7 @@ try:
                 else:
                     instruction = f"Hold: {held_seconds:.1f}/2.0 seconds"
             elif not controls_enabled:
-                instruction = "Open your middle, ring, and pinky finger to continue"
+                instruction = "4 fingers, thumb folded to resume"
             elif status in volume_commands and ready:
                 instruction = "Adjusting volume"
             elif now < feedback_until:
@@ -246,53 +265,68 @@ try:
 
             # fit camera frame
             preview = np.full(
-                (600, 640, 3), (20, 20, 20), dtype=np.uint8,
+                (600, 640, 3), BG_CAM, dtype=np.uint8,
             )
-            ratio = min(640 / width, 600 / height)
-            resized_width = max(1, min(640, int(width * ratio)))
-            resized_height = max(1, min(600, int(height * ratio)))
+            feed_box_width = 600
+            ratio = feed_box_width / width
+            resized_width = feed_box_width
+            resized_height = int(height * ratio)
+
+            x = 20
+            y = 46
+
+            # draw outer window border 
+            cv2.rectangle(preview, (20, 16), (620, y + resized_height), (220, 220, 220), 6, cv2.LINE_AA)
+
+            # draw top bar
+            cv2.rectangle(preview, (20, 16), (620, 46), (220, 220, 220), -1)
+            cv2.putText(
+                preview, "CAM_FEED.EXE", (30, 37),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (30, 30, 30), 1, cv2.LINE_AA,
+            )
+            cv2.putText(
+                preview, "X", (595, 37),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (30, 30, 30), 2, cv2.LINE_AA,
+            )
+
+            # camera feed
             resized = cv2.resize(
                 frame, (resized_width, resized_height),
             )
-            x = (640 - resized_width) // 2
-            y = (600 - resized_height) // 2
             preview[y:y + resized_height, x:x + resized_width] = resized
 
             # Create information panel
             panel = np.full(
-                (600, 440, 3), (30, 30, 30), dtype=np.uint8,
+                (600, 440, 3), BG_PANEL, dtype=np.uint8,
             )
 
             panel_text(
                 panel, "GESTURE MUSIC CONTROLS",
-                35, (0, 220, 255), 0.8,
+                35, ACCENT_PINK, 0.7, 2,
             )
 
             mode = "ACTIVE" if controls_enabled else "PAUSED"
             mode_color = (
                 (0, 255, 180) if controls_enabled else (0, 180, 255)
             )
-            panel_text(panel, f"Controls: {mode}", 70, mode_color, 0.7)
+            panel_text(panel, f"Controls: {mode}", 70, ACCENT_CYAN, 0.7, 1)
 
-            panel_text(panel, "GESTURES", 110, (0, 220, 255))
+            panel_text(panel, "Closed: Pause music", 100, TEXT_WHITE, 0.48)
+            panel_text(panel, "Open: Play music", 125, TEXT_WHITE, 0.48)
+            panel_text(panel, "Index: Volume up", 150, TEXT_WHITE, 0.48)
+            panel_text(panel, "Index & Middle: Volume down", 175, TEXT_WHITE, 0.48)
+            panel_text(panel, "Index & Middle & Ring: Next track", 200, TEXT_WHITE, 0.48)
+            panel_text(panel, "Index & Pinky: Previous track", 225, TEXT_WHITE, 0.48)
+            panel_text(panel, "Middle & Ring & Pinky: Pause/ resume", 250, TEXT_WHITE, 0.48)
+            panel_text(panel, "controls", 270, TEXT_WHITE, 0.48)
+            panel_text(panel, "(Hold for 2 seconds)", 295, TEXT_WHITE, 0.48)
 
-            panel_text(panel, "Closed hand: Pause music", 145)
-            panel_text(panel, "5 fingers open: Play music", 180)
-            panel_text(panel, "Index finger: Volume up", 215)
-            panel_text(panel, "Index & middle: Volume down", 250)
-            panel_text(panel, "Index & middle & ring: Next track", 285)
-            panel_text(panel, "Index & pinky: Previous track", 320)
-            panel_text(panel, "Middle & ring & and pinky:", 355)
-            panel_text(panel, "Hold 2s to pause/resume controls", 380)
+            panel_text(panel, "Keep holding to adjust volume.", 335, TEXT_WHITE, 0.45)
+            panel_text(panel, "Remove hand 0.5s before toggling another", 357, TEXT_WHITE, 0.45)
+            panel_text(panel, "control.", 379, TEXT_WHITE, 0.45)
 
-            panel_text(panel, "Keep holding to adjust volume.", 415)
-            panel_text(panel, "Remove hand 0.5s before toggling", 440)
-            panel_text(panel, "again or changing another track.", 465)
-
-            panel_text(
-                panel, f"Detected: {status}",
-                490, (0, 255, 180),
-            )
+            panel_text(panel, "Detected: ", 415, ACCENT_CYAN, 0.52, 1)
+            panel_text(panel, f"            {status}", 415, TEXT_WHITE, 0.52, 1)
 
             # show progress bar for hold time
             progress = (
@@ -301,19 +335,46 @@ try:
                 and (controls_enabled or status == "Toggle controls")
                 else 0.0
             )
-            cv2.rectangle(
-                panel, (20, 500), (420, 516), (70, 70, 70), -1,
-            )
-            if progress > 0:
-                cv2.rectangle(
-                    panel,
-                    (20, 500),
-                    (20 + int(400 * progress), 516),
-                    (0, 210, 160),
-                    -1,
-                )
-            panel_text(panel, instruction, 545, (0, 220, 255), 0.5)
-            panel_text(panel, "Click camera window, then Q to exit.", 575)
+            # loading bar
+            bar_x, bar_y, bar_w, bar_h = 20, 445, 400, 22
+            cv2.rectangle(panel, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (0, 0, 0), -1, cv2.LINE_AA)
+            
+            block_size = 12    
+            block_spacing = 4  
+            step = block_size + block_spacing
+            available_w = bar_w - 16
+            total_blocks = available_w // step
+            total_blocks_width = (total_blocks * block_size) + ((total_blocks - 1) * block_spacing)
+            start_x = bar_x + (bar_w - total_blocks_width) // 2
+            
+            lit_blocks = int(total_blocks * progress)
+            
+            for i in range(total_blocks):
+                bx = start_x + (i * step)
+                by = bar_y + (bar_h - block_size) // 2
+                
+                if i < lit_blocks:
+                    cv2.rectangle(panel, (bx, by), (bx + block_size, by + block_size), ACCENT_CYAN, -1, cv2.LINE_AA)
+                else:
+                    cv2.rectangle(panel, (bx, by), (bx + block_size, by + block_size), (0, 0, 0), -1, cv2.LINE_AA)
+                    
+            panel_text(panel, instruction, 505, ACCENT_CYAN, 0.45)
+
+            # Compact, Right-Aligned Retro EXIT button box
+            exit_w, exit_h = 130, 42
+            exit_x = 440 - exit_w - 20  # 290 px from left
+            exit_y = 535
+            
+            # Button background and pink border
+            cv2.rectangle(panel, (exit_x, exit_y), (exit_x + exit_w, exit_y + exit_h), (26, 28, 44), -1, cv2.LINE_AA)
+            cv2.rectangle(panel, (exit_x, exit_y), (exit_x + exit_w, exit_y + exit_h), ACCENT_PINK, 2, cv2.LINE_AA)
+            
+            # Inner "Q" icon box on the left side of the button
+            cv2.rectangle(panel, (exit_x + 10, exit_y + 8), (exit_x + 36, exit_y + 34), ACCENT_PINK, 1, cv2.LINE_AA)
+            
+            # Custom font text positioned correctly inside the button using the new x parameter
+            panel_text(panel, "Q", exit_y + 12, ACCENT_PINK, 0.55, 1, x=exit_x + 16)
+            panel_text(panel, "EXIT", exit_y + 13, TEXT_WHITE, 0.48, 1, x=exit_x + 44)
 
             # combine camera preview and information panel
             display = np.hstack((preview, panel))
