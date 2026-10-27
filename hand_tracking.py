@@ -141,7 +141,7 @@ try:
                 )
                 thumb_open = thumb_ratio > 0.65
 
-                if all(fingers) and not thumb_open:
+                if fingers == [False, False, False, True]:
                     status = "Toggle controls"
                 elif all(fingers):
                     status = "Open hand"
@@ -249,7 +249,7 @@ try:
                 else:
                     instruction = f"Hold: {held_seconds:.1f}/2.0 seconds"
             elif not controls_enabled:
-                instruction = "4 fingers, thumb folded to resume"
+                instruction = "Just pinky finger to resume"
             elif status in volume_commands and ready:
                 instruction = "Adjusting volume"
             elif now < feedback_until:
@@ -317,7 +317,7 @@ try:
             panel_text(panel, "Index & Middle: Volume down", 175, TEXT_WHITE, 0.48)
             panel_text(panel, "Index & Middle & Ring: Next track", 200, TEXT_WHITE, 0.48)
             panel_text(panel, "Index & Pinky: Previous track", 225, TEXT_WHITE, 0.48)
-            panel_text(panel, "Middle & Ring & Pinky: Pause/ resume", 250, TEXT_WHITE, 0.48)
+            panel_text(panel, "Pinky: Pause/ resume", 250, TEXT_WHITE, 0.48)
             panel_text(panel, "controls", 270, TEXT_WHITE, 0.48)
             panel_text(panel, "(Hold for 2 seconds)", 295, TEXT_WHITE, 0.48)
 
@@ -360,19 +360,18 @@ try:
                     
             panel_text(panel, instruction, 505, ACCENT_CYAN, 0.45)
 
-            # Compact, Right-Aligned Retro EXIT button box
+            # exit box
             exit_w, exit_h = 130, 42
             exit_x = 440 - exit_w - 20  # 290 px from left
             exit_y = 535
             
-            # Button background and pink border
+            # button background and pink border
             cv2.rectangle(panel, (exit_x, exit_y), (exit_x + exit_w, exit_y + exit_h), (26, 28, 44), -1, cv2.LINE_AA)
             cv2.rectangle(panel, (exit_x, exit_y), (exit_x + exit_w, exit_y + exit_h), ACCENT_PINK, 2, cv2.LINE_AA)
             
-            # Inner "Q" icon box on the left side of the button
+            # inner "Q" icon box on the left side of the button
             cv2.rectangle(panel, (exit_x + 10, exit_y + 8), (exit_x + 36, exit_y + 34), ACCENT_PINK, 1, cv2.LINE_AA)
             
-            # Custom font text positioned correctly inside the button using the new x parameter
             panel_text(panel, "Q", exit_y + 12, ACCENT_PINK, 0.55, 1, x=exit_x + 16)
             panel_text(panel, "EXIT", exit_y + 13, TEXT_WHITE, 0.48, 1, x=exit_x + 44)
 
