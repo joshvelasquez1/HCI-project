@@ -6,11 +6,13 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 from controls import MusicControls
-from display import draw_hand, render_display
+from display import draw_hand, draw_static_panel, render_display
 from gestures import classify_gesture
+from session_log import start_log, log_event, stop_log
+from swipe import update_history, check_swipe
 
 
-def run_app():
+def run_app(testing=False):
     # Load the hand landmarker model.
     model_path = Path(__file__).with_name("hand_landmarker.task")
     if not model_path.is_file():
@@ -28,6 +30,11 @@ def run_app():
     window_name = "Gesture Music Controls - Press Q to exit"
     last_timestamp = -1
     controls = MusicControls()
+    static_panel = draw_static_panel(testing)
+    wrist_history = []
+
+    if testing:
+        start_log()
 
     try:
         if not camera.isOpened():
@@ -60,20 +67,33 @@ def run_app():
                 result = detector.detect_for_video(image, timestamp)
                 height, width = frame.shape[:2]
                 status = "No hand detected"
+                swipe = None
                 for hand in result.hand_landmarks:
                     status = classify_gesture(hand)
                     draw_hand(frame, hand, width, height)
 
-                instruction, held_seconds, required_hold, valid_gesture = controls.update(status)
+                    # swipes only count with an open hand, hand[0] is the wrist
+                    if status == "Open hand":
+                        update_history(wrist_history, time.monotonic(), hand[0].x, hand[0].y)
+                        swipe = check_swipe(wrist_history)
+                        if swipe:
+                            wrist_history.clear()
+
+                instruction, held_seconds, required_hold, valid_gesture = controls.update(status, swipe)
                 display = render_display(
                     frame, status, controls.controls_enabled, instruction,
-                    held_seconds, required_hold, valid_gesture,
+                    held_seconds, required_hold, valid_gesture, static_panel,
                 )
                 cv2.imshow(window_name, display)
 
-                #exit
-                if cv2.waitKey(1) & 0xFF == ord("q"):
+                #exit, in test mode M marks a missed gesture and F marks a false trigger
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord("q"):
                     break
+                if key == ord("m"):
+                    log_event("marked missed")
+                if key == ord("f"):
+                    log_event("marked false trigger")
                 #exit if window closed
                 if cv2.getWindowProperty(
                     window_name, cv2.WND_PROP_VISIBLE
@@ -81,5 +101,6 @@ def run_app():
                     break
 
     finally:
+        stop_log()
         camera.release()
         cv2.destroyAllWindows()
