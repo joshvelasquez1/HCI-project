@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -18,23 +20,34 @@ ACCENT_CYAN = (255, 210, 0)   # #00D2FF
 ACCENT_PINK = (108, 37, 244)  # #F4256C
 TEXT_WHITE = (244, 244, 244)  # #F4F4F4
 
+# font file sits next to this script like the model does
+font_path = Path(__file__).with_name("VT323-Regular.ttf")
+fonts = {}
+
 # information panel this is where we change the font
 def panel_text(panel, text, y, color=(244, 244, 244), scale=0.5, thickness=1, x=20):
-    pil_img = Image.fromarray(cv2.cvtColor(panel, cv2.COLOR_BGR2RGB))
-    draw = ImageDraw.Draw(pil_img)
+    font_size = int(scale * 40)
 
-    try:
-        font_size = int(scale * 40)
-        font = ImageFont.truetype("VT323-Regular.ttf", font_size)
-    except IOError:
-        font = ImageFont.load_default()
+    # load each font size once instead of reloading it from disk every frame
+    if font_size not in fonts:
+        try:
+            fonts[font_size] = ImageFont.truetype(str(font_path), font_size)
+        except IOError:
+            fonts[font_size] = ImageFont.load_default()
+    font = fonts[font_size]
+
+    # only convert the strip of the panel the text sits on instead of the whole panel
+    top = max(y - 6, 0)
+    strip = panel[top:top + font_size * 2]
+    pil_img = Image.fromarray(cv2.cvtColor(strip, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(pil_img)
 
     color_rgb = (color[2], color[1], color[0])
 
-    draw.text((x, y - 6), text, font=font, fill=color_rgb)
+    draw.text((x, y - 6 - top), text, font=font, fill=color_rgb)
 
     converted_back = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-    np.copyto(panel, converted_back)
+    np.copyto(strip, converted_back)
 
 def draw_hand(frame, hand, width, height):
     # convert normalized coordinates to pixel coordinates
@@ -54,8 +67,58 @@ def draw_hand(frame, hand, width, height):
         cv2.circle(frame, point, 4, (0, 0, 255), -1)
 
 
+def draw_static_panel(testing=False):
+    # the parts of the panel that never change get drawn once here instead of every frame,
+    # the pixel font is slow to draw so redrawing all of it every frame was killing the frame rate
+    panel = np.full(
+        (600, 440, 3), BG_PANEL, dtype=np.uint8,
+    )
+
+    panel_text(
+        panel, "GESTURE MUSIC CONTROLS",
+        35, ACCENT_PINK, 0.7, 2,
+    )
+
+    panel_text(panel, "Closed: Pause music", 100, TEXT_WHITE, 0.48)
+    panel_text(panel, "Open: Play music", 125, TEXT_WHITE, 0.48)
+    panel_text(panel, "Index: Volume up", 150, TEXT_WHITE, 0.48)
+    panel_text(panel, "Index & Middle: Volume down", 175, TEXT_WHITE, 0.48)
+    panel_text(panel, "Swipe right / 3 fingers: Next track", 200, TEXT_WHITE, 0.48)
+    panel_text(panel, "Swipe left / Index & Pinky: Prev track", 225, TEXT_WHITE, 0.48)
+    panel_text(panel, "Pinky: Pause/ resume", 250, TEXT_WHITE, 0.48)
+    panel_text(panel, "controls", 270, TEXT_WHITE, 0.48)
+    panel_text(panel, "(Hold for 2 seconds)", 295, TEXT_WHITE, 0.48)
+
+    panel_text(panel, "Keep holding to adjust volume.", 335, TEXT_WHITE, 0.45)
+    panel_text(panel, "Remove hand 0.5s before toggling another", 357, TEXT_WHITE, 0.45)
+    panel_text(panel, "control.", 379, TEXT_WHITE, 0.45)
+
+    panel_text(panel, "Detected: ", 415, ACCENT_CYAN, 0.52, 1)
+
+    # exit box
+    exit_w, exit_h = 130, 42
+    exit_x = 440 - exit_w - 20  # 290 px from left
+    exit_y = 535
+
+    # button background and pink border
+    cv2.rectangle(panel, (exit_x, exit_y), (exit_x + exit_w, exit_y + exit_h), (26, 28, 44), -1, cv2.LINE_AA)
+    cv2.rectangle(panel, (exit_x, exit_y), (exit_x + exit_w, exit_y + exit_h), ACCENT_PINK, 2, cv2.LINE_AA)
+
+    # inner "Q" icon box on the left side of the button
+    cv2.rectangle(panel, (exit_x + 10, exit_y + 8), (exit_x + 36, exit_y + 34), ACCENT_PINK, 1, cv2.LINE_AA)
+
+    panel_text(panel, "Q", exit_y + 12, ACCENT_PINK, 0.55, 1, x=exit_x + 16)
+    panel_text(panel, "EXIT", exit_y + 13, TEXT_WHITE, 0.48, 1, x=exit_x + 44)
+
+    # reminder for whoever is running a user test
+    if testing:
+        panel_text(panel, "TEST  M: missed  F: false", 548, ACCENT_PINK, 0.45)
+
+    return panel
+
+
 def render_display(frame, status, controls_enabled, instruction,
-                   held_seconds, required_hold, valid_gesture):
+                   held_seconds, required_hold, valid_gesture, static_panel):
     height, width = frame.shape[:2]
     # fit camera frame
     preview = np.full(
@@ -89,37 +152,14 @@ def render_display(frame, status, controls_enabled, instruction,
     )
     preview[y:y + resized_height, x:x + resized_width] = resized
 
-    # Create information panel
-    panel = np.full(
-        (600, 440, 3), BG_PANEL, dtype=np.uint8,
-    )
-
-    panel_text(
-        panel, "GESTURE MUSIC CONTROLS",
-        35, ACCENT_PINK, 0.7, 2,
-    )
+    # copy the parts of the panel that never change
+    panel = static_panel.copy()
 
     mode = "ACTIVE" if controls_enabled else "PAUSED"
     mode_color = (
         (0, 255, 180) if controls_enabled else (0, 180, 255)
     )
     panel_text(panel, f"Controls: {mode}", 70, ACCENT_CYAN, 0.7, 1)
-
-    panel_text(panel, "Closed: Pause music", 100, TEXT_WHITE, 0.48)
-    panel_text(panel, "Open: Play music", 125, TEXT_WHITE, 0.48)
-    panel_text(panel, "Index: Volume up", 150, TEXT_WHITE, 0.48)
-    panel_text(panel, "Index & Middle: Volume down", 175, TEXT_WHITE, 0.48)
-    panel_text(panel, "Index & Middle & Ring: Next track", 200, TEXT_WHITE, 0.48)
-    panel_text(panel, "Index & Pinky: Previous track", 225, TEXT_WHITE, 0.48)
-    panel_text(panel, "Pinky: Pause/ resume", 250, TEXT_WHITE, 0.48)
-    panel_text(panel, "controls", 270, TEXT_WHITE, 0.48)
-    panel_text(panel, "(Hold for 2 seconds)", 295, TEXT_WHITE, 0.48)
-
-    panel_text(panel, "Keep holding to adjust volume.", 335, TEXT_WHITE, 0.45)
-    panel_text(panel, "Remove hand 0.5s before toggling another", 357, TEXT_WHITE, 0.45)
-    panel_text(panel, "control.", 379, TEXT_WHITE, 0.45)
-
-    panel_text(panel, "Detected: ", 415, ACCENT_CYAN, 0.52, 1)
     panel_text(panel, f"            {status}", 415, TEXT_WHITE, 0.52, 1)
 
     # show progress bar for hold time
@@ -153,21 +193,6 @@ def render_display(frame, status, controls_enabled, instruction,
             cv2.rectangle(panel, (bx, by), (bx + block_size, by + block_size), (0, 0, 0), -1, cv2.LINE_AA)
 
     panel_text(panel, instruction, 505, ACCENT_CYAN, 0.45)
-
-    # exit box
-    exit_w, exit_h = 130, 42
-    exit_x = 440 - exit_w - 20  # 290 px from left
-    exit_y = 535
-
-    # button background and pink border
-    cv2.rectangle(panel, (exit_x, exit_y), (exit_x + exit_w, exit_y + exit_h), (26, 28, 44), -1, cv2.LINE_AA)
-    cv2.rectangle(panel, (exit_x, exit_y), (exit_x + exit_w, exit_y + exit_h), ACCENT_PINK, 2, cv2.LINE_AA)
-
-    # inner "Q" icon box on the left side of the button
-    cv2.rectangle(panel, (exit_x + 10, exit_y + 8), (exit_x + 36, exit_y + 34), ACCENT_PINK, 1, cv2.LINE_AA)
-
-    panel_text(panel, "Q", exit_y + 12, ACCENT_PINK, 0.55, 1, x=exit_x + 16)
-    panel_text(panel, "EXIT", exit_y + 13, TEXT_WHITE, 0.48, 1, x=exit_x + 44)
 
     # combine camera preview and information panel
     return np.hstack((preview, panel))

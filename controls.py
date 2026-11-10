@@ -2,6 +2,9 @@ import time
 
 import pyautogui
 
+from session_log import log_event
+from swipe import SWIPE_COOLDOWN
+
 # volume
 volume_commands = {
     "Volume up": "volumeup",
@@ -31,9 +34,21 @@ class MusicControls:
         self.toggle_used = False
         self.feedback_until = 0.0
         self.feedback = ""
+        self.last_swipe = 0.0
 
-    def update(self, status):
+    def update(self, status, swipe=None):
         now = time.monotonic()
+
+        # swipes skip right away with no hold, the cooldown stops one swipe from skipping twice
+        if swipe and self.controls_enabled and now - self.last_swipe >= SWIPE_COOLDOWN:
+            pyautogui.press(track_commands[swipe])
+            self.last_swipe = now
+            # restart the hold timer so the open hand doesn't also count as play
+            self.gesture_since = now
+            self.feedback = f"Swipe: {swipe}"
+            self.feedback_until = now + 1.5
+            print(self.feedback)
+            log_event("swipe", swipe)
 
         # restart hold time if gesture changes
         if status != self.previous_gesture:
@@ -74,6 +89,7 @@ class MusicControls:
                 )
                 self.feedback_until = time.monotonic() + 1.5
                 print(self.feedback)
+                log_event("controls", self.feedback)
 
         # only work when controls enabled
         elif self.controls_enabled and ready:
@@ -96,12 +112,14 @@ class MusicControls:
             ):
                 pyautogui.press(volume_commands[status])
                 self.last_volume_change = time.monotonic()
+                log_event("volume", status)
 
             # provide self.feedback for any action taken
             if action is not None:
                 self.feedback = action
                 self.feedback_until = time.monotonic() + 1.5
                 print(action)
+                log_event("held gesture", action)
         if status == "Toggle controls":
             if self.toggle_used:
                 instruction = "Remove hand before toggling again"
